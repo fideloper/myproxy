@@ -20,28 +20,28 @@ type ReverseProxy struct {
 	targets   []*Target
 }
 
-type Target struct {
-	router   *mux.Router
-	upstream *url.URL
-}
-
 // AddTarget adds an upstream server to use for a request that matches
 // a given gorilla/mux Router. These are matched via Director function.
-func (r *ReverseProxy) AddTarget(upstream string, router *mux.Router) error {
-	url, err := url.Parse(upstream)
+func (r *ReverseProxy) AddTarget(upstreams []string, router *mux.Router) error {
+	var upstreamPool []*url.URL
+	for _, upstream := range upstreams {
+		url, err := url.Parse(upstream)
 
-	if err != nil {
-		return err
-	}
+		if err != nil {
+			return err
+		}
 
-	if router == nil {
-		router = mux.NewRouter()
-		router.PathPrefix("/")
+		if router == nil {
+			router = mux.NewRouter()
+			router.PathPrefix("/")
+		}
+
+		upstreamPool = append(upstreamPool, url)
 	}
 
 	r.targets = append(r.targets, &Target{
-		router:   router,
-		upstream: url,
+		router:    router,
+		upstreams: upstreamPool,
 	})
 
 	return nil
@@ -136,11 +136,11 @@ func (r *ReverseProxy) Director() func(req *http.Request) {
 		for _, t := range r.targets {
 			match := &mux.RouteMatch{}
 			if t.router.Match(req, match) {
-				targetQuery := t.upstream.RawQuery
-
-				req.URL.Scheme = t.upstream.Scheme
-				req.URL.Host = t.upstream.Host
-				req.URL.Path, req.URL.RawPath = joinURLPath(t.upstream, req.URL)
+				upstream := t.SelectTarget()
+				var targetQuery = upstream.RawQuery
+				req.URL.Scheme = upstream.Scheme
+				req.URL.Host = upstream.Host
+				req.URL.Path, req.URL.RawPath = joinURLPath(upstream, req.URL)
 				if targetQuery == "" || req.URL.RawQuery == "" {
 					req.URL.RawQuery = targetQuery + req.URL.RawQuery
 				} else {

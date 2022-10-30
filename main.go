@@ -14,10 +14,14 @@ func main() {
 	// Handle URI /foo
 	a := mux.NewRouter()
 	a.Host("fid.dev").Path("/foo")
-	r.AddTarget("http://localhost:8001", a)
+	r.AddTarget([]string{"http://localhost:8000"}, a)
 
 	// Handle anything else
-	r.AddTarget("http://localhost:8000", nil)
+	r.AddTarget([]string{
+		"http://localhost:8001",
+		"http://localhost:8002",
+		"http://localhost:8003",
+	}, nil)
 
 	// Listen for http://
 	r.AddListener(":80")
