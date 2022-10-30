@@ -16,12 +16,20 @@ func main() {
 	a.Host("fid.dev").Path("/foo")
 	r.AddTarget([]string{"http://localhost:8000"}, a)
 
+	// This has to go above the fallback target
+	b := mux.NewRouter()
+	b.Host("localhost:8888")
+	r.AddTarget([]string{"http://localhost:8004"}, b)
+
 	// Handle anything else
 	r.AddTarget([]string{
 		"http://localhost:8001",
 		"http://localhost:8002",
 		"http://localhost:8003",
 	}, nil)
+
+	// Listen for http:// on alt port
+	r.AddListener(":8888")
 
 	// Listen for http://
 	r.AddListener(":80")
