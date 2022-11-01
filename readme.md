@@ -13,7 +13,7 @@ Some ideas that might be fun to incorporate
 - [x] graceful shutdown
 - [ ] Dynamic configuration
     - graceful reloading
-- [ ] Multiple backends (e.g. load balancing)
+- [x] Multiple backends (e.g. load balancing)
 - [ ] Health checks
 - [ ] Dynamic behavior on incoming requests (e.g. send job to SQS)
 - [ ] Dynamic behavior on returned requests (e.g. read a response header and replay request somewhere else)
