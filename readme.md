@@ -1,5 +1,5 @@
-# Some Proxy
-My own reverse proxy. Feelin' cute, might delete later.
+# My Proxy
+This is my (reverse) proxy. There are many like it, but this one is mine.
 
 I've written about [developing this reverse proxy](https://fideloper.com/go-http).
 
@@ -13,10 +13,12 @@ Some ideas that might be fun to incorporate
 - [x] graceful shutdown
 - [ ] Dynamic configuration
     - graceful reloading
-- [x] Multiple backends (e.g. load balancing)
+- [x] Multiple backends (AKA load balancing)
 - [ ] Health checks
 - [ ] Dynamic behavior on incoming requests (e.g. send job to SQS)
 - [ ] Dynamic behavior on returned requests (e.g. read a response header and replay request somewhere else)
 - [ ] h2c (backend, or backend AND frontend)?
 - [ ] fastcgi?
 - [ ] WAF
+- [ ] Logging
+- [ ] Prometheus metrics
