@@ -2,9 +2,13 @@ package reverseproxy
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"github.com/gorilla/mux"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -73,6 +77,18 @@ func (r *ReverseProxy) Start() error {
 		Director: r.Director(),
 	}
 
+	// This breaks connections to non-http2 backends
+	r.proxy.Transport = &http2.Transport{
+		AllowHTTP: true,
+		DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+			ta, err := net.ResolveTCPAddr(network, addr)
+			if err != nil {
+				return nil, err
+			}
+			return net.DialTCP(network, nil, ta)
+		},
+	}
+
 	for _, l := range r.listeners {
 		listener, err := l.Make()
 		if err != nil {
@@ -81,7 +97,17 @@ func (r *ReverseProxy) Start() error {
 			return err
 		}
 
-		srv := &http.Server{Handler: r.proxy}
+		// This accepts h2c connections but doesn't seem to
+		// pass that on through to the backend server until we over-ride the Transport in a way that allows h2c
+		// However doing that breaks other "normal" connection types
+		// Tested with: docker run --rm -it -p 8000:8000 -v $(pwd)/default.conf:/etc/nginx/conf.d/default.conf nginx:latest
+		//                  ~/Code/Fideloper/pproxy-util/nginx-h2c/default.conf
+		// Direct to docker: curl -v --http2-prior-knowledge http://localhost:8000
+		// Through our proxy: curl -v --http2-prior-knowledge http://localhost
+		// undo this: `go mod tidy` to remove golang.org/x/net/http2/h2c
+		h2s := &http2.Server{}
+
+		srv := &http.Server{Handler: h2c.NewHandler(r.proxy, h2s)}
 
 		r.servers = append(r.servers, srv)
 
