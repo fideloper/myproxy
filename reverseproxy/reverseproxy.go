@@ -3,8 +3,10 @@ package reverseproxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/gorilla/mux"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -20,10 +22,32 @@ type ReverseProxy struct {
 	targets   []*Target
 }
 
+func (r *ReverseProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	for _, t := range r.targets {
+		match := &mux.RouteMatch{}
+		if t.router.Match(req, match) {
+			upstream, err := t.SelectUpstream()
+
+			// No upstream is eligible
+			if err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				fmt.Fprintf(w, http.StatusText(http.StatusServiceUnavailable))
+				return
+			}
+
+			// SetVar(req.Context(), "target", t)
+			SetVar(req.Context(), "upstream", upstream)
+			break
+		}
+	}
+
+	r.proxy.ServeHTTP(w, req)
+}
+
 // AddTarget adds an upstream server to use for a request that matches
 // a given gorilla/mux Router. These are matched via Director function.
 func (r *ReverseProxy) AddTarget(upstreams []string, router *mux.Router) error {
-	var upstreamPool []*url.URL
+	var upstreamPool []*Upstream
 	for _, upstream := range upstreams {
 		url, err := url.Parse(upstream)
 
@@ -36,7 +60,9 @@ func (r *ReverseProxy) AddTarget(upstreams []string, router *mux.Router) error {
 			router.PathPrefix("/")
 		}
 
-		upstreamPool = append(upstreamPool, url)
+		upstreamPool = append(upstreamPool, &Upstream{
+			url: url,
+		})
 	}
 
 	r.targets = append(r.targets, &Target{
@@ -71,6 +97,9 @@ func (r *ReverseProxy) AddListenerTLS(address, tlsCert, tlsKey string) {
 func (r *ReverseProxy) Start() error {
 	r.proxy = &httputil.ReverseProxy{
 		Director: r.Director(),
+		Transport: Transport{
+			base: http.DefaultTransport,
+		},
 	}
 
 	for _, l := range r.listeners {
@@ -81,7 +110,12 @@ func (r *ReverseProxy) Start() error {
 			return err
 		}
 
-		srv := &http.Server{Handler: r.proxy}
+		srv := &http.Server{
+			Handler: r,
+			BaseContext: func(listener net.Listener) context.Context {
+				return InitRequestContext()
+			},
+		}
 
 		r.servers = append(r.servers, srv)
 
@@ -133,25 +167,25 @@ func (r *ReverseProxy) Stop() {
 // sets the request object to be sent to the matched upstream server.
 func (r *ReverseProxy) Director() func(req *http.Request) {
 	return func(req *http.Request) {
-		for _, t := range r.targets {
-			match := &mux.RouteMatch{}
-			if t.router.Match(req, match) {
-				upstream := t.SelectTarget()
-				var targetQuery = upstream.RawQuery
-				req.URL.Scheme = upstream.Scheme
-				req.URL.Host = upstream.Host
-				req.URL.Path, req.URL.RawPath = joinURLPath(upstream, req.URL)
-				if targetQuery == "" || req.URL.RawQuery == "" {
-					req.URL.RawQuery = targetQuery + req.URL.RawQuery
-				} else {
-					req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
-				}
-				if _, ok := req.Header["User-Agent"]; !ok {
-					// explicitly disable User-Agent so it's not set to default value
-					req.Header.Set("User-Agent", "")
-				}
-				break
-			}
+		upstream, ok := GetVar(req.Context(), "upstream").(*Upstream)
+
+		if !ok {
+			panic("upstream incorrectly set to request context")
+			return
+		}
+
+		var targetQuery = upstream.url.RawQuery
+		req.URL.Scheme = upstream.url.Scheme
+		req.URL.Host = upstream.url.Host
+		req.URL.Path, req.URL.RawPath = joinURLPath(upstream.url, req.URL)
+		if targetQuery == "" || req.URL.RawQuery == "" {
+			req.URL.RawQuery = targetQuery + req.URL.RawQuery
+		} else {
+			req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
+		}
+		if _, ok := req.Header["User-Agent"]; !ok {
+			// explicitly disable User-Agent so it's not set to default value
+			req.Header.Set("User-Agent", "")
 		}
 	}
 }
